@@ -10,9 +10,6 @@ from threading import Thread
 import copy
 import numpy as np
 
-# odometry test
-#from localization import *
-
 class SerialComm:
     def __init__(self, portName, baudrate = 115200, seperator = b'\x00') -> None:
         """
@@ -102,6 +99,7 @@ class SerialComm:
         self.__thread_read = Thread(target=self._serial_read)
         self.__thread_read.daemon = True
         self.__thread_read.start()
+        return True
 
     def end(self):
         self.__reading = False # close background thread
@@ -127,9 +125,11 @@ class Protocol:
     CMD_SERVO = 1
     CMD_ADVFUN = 2
     CMD_REQUEST = 3
+    CMD_DIRECT_MOTION = 4
 
     MOTION_MODE_SPEED = 0
     MOTION_MODE_DISTANCE = 1
+    MOTION_SPEED_FACTOR = 0.003 # 0.3cm/s for 1 unit; max. 255
 
     FORWARD = 3
     LEFT = 1
@@ -140,6 +140,8 @@ class Protocol:
     SERVO_EMPTY = 1
 
     ADVFUN_LOCAL_AVOID = 0
+    # ADVFUN_DISABLE_OBS_DETECTION = 1
+    # ADVFUN_ENABLE_OBS_DETECTION = 2
 
     REQUEST_ORIENTATION = 0
     REQUEST_DECLINATION = 1
@@ -180,22 +182,30 @@ class Protocol:
             assert added_info1 is not None # Mode
             assert added_info2 is not None # Direction
             assert data[0] <= 255 and data[0] >= 0  # value
-            assert data[1] <= 255 and data[1] >= 0  # timeout
-            length = 2
+            # assert data[1] <= 255 and data[1] >= 0  # timeout
+            length = len(data)
+            assert length == 1 or length == 2
             header = (length << 6) | (cmd << 3) | (added_info1 << 2) | added_info2
             return bytearray([header] + data)
+        elif cmd ==  Protocol.CMD_DIRECT_MOTION:
+            assert data[0] <= 255 and data[0] >= 0 
+            assert data[1] <= 255 and data[1] >= 0 
+            length = len(data)
+            assert length == 2 or length == 3
+            header = (length << 6) | (cmd << 3) 
+            return bytearray([header] + data)          
         elif cmd == Protocol.CMD_SERVO:
             assert (added_info1 == Protocol.SERVO_PICKUP) or (added_info1 == Protocol.SERVO_EMPTY)
             header = (0 << 6) | (cmd << 3) | added_info1
-            return bytearray(header)
+            return bytearray([header])
         elif cmd == Protocol.CMD_ADVFUN:
-            assert added_info1 == Protocol.ADVFUN_LOCAL_AVOID
+            # assert added_info1 == Protocol.ADVFUN_LOCAL_AVOID
             header = (0 << 6) | (cmd << 3) | added_info1
-            return bytearray(header)
+            return bytearray([header])
         elif cmd == Protocol.CMD_REQUEST:
             assert added_info1 is not None # Content
             header = (0 << 6) | (cmd << 3) | added_info1
-            return bytearray(header)
+            return bytearray([header])
         else:
             raise Exception(f"Unknow Command {cmd}")
         
@@ -213,16 +223,18 @@ class Arduino:
 
     def __init__(self, portName : str) -> None:
         self.sercom = SerialComm(portName=portName)
-
+        self.OBS_WARN = False
         self.TASK_UNDERGOING = False # pick bottle/ empty the storage/ local avoidance
 
-    def whereami(self):
-        pos, theta = self.locaizer.get()
-        return f'{pos[0]:.2f}, {pos[1]:.2f}, {theta/np.pi*180:.0f} deg'
+    def __del__(self):
+        self.end()
+
+    # def whereami(self):
+    #     pos, theta = self.locaizer.get()
+    #     return f'{pos[0]:.2f}, {pos[1]:.2f}, {theta/np.pi*180:.0f} deg'
 
     def start(self):
-        #self.locaizer = Localization()
-        self.sercom.start()
+        return self.sercom.start()
 
     def end(self):
         self.sercom.end()
@@ -239,33 +251,30 @@ class Arduino:
                     addedinfo = decoded[1]
                     data = decoded[2:]
                     if msgtype == Protocol.RPT_WARN:
-                        # less than 30cm in front, the robot has stopped
-                        warn_left = (addedinfo & 0b100)  >> 2
-                        warn_middle = (addedinfo & 0b10) >> 1
-                        warn_right = addedinfo & 0b1
+                        index = addedinfo
+                        distance = data[0]
+                        self.OBS_WARN = True
+                        # self.do_local_avoidance() # temperoal strategy: just avoid
                         # some obs are too close
                         # how to deal with it?
                         # TODO: identify if it's obstacle or the wall.
 
-                        print(f"[Warning] Obstacle in front too close! {data}")
+                        print(f"[Warning] Obstacle in front too close! the closest distance: {distance-1} from sensor {index}")
                         
                     elif msgtype == Protocol.RPT_OBSTACLES_FRONT:
                         # addedinfo indicates if there's obstacle in 80cm(for avoidance)
-                        warn_left = (addedinfo & 0b100)  >> 2
-                        warn_middle = (addedinfo & 0b10) >> 1
-                        warn_right = addedinfo & 0b1
+                        index = addedinfo
+                        distance = data[0]
                         # TODO
-                        print(f'[Obstacle] Front: {data[0], data[1], data[2]}')
+                        print(f'[Obstacle] Front: the closest distance: {distance-1} from sensor {index}')
                     elif msgtype == Protocol.RPT_OBSTACLES_BACK:
                         # not implemented yet
-                        warn_left = (addedinfo & 0b100)  >> 2
-                        warn_right = addedinfo & 0b1
                         # TODO
-                        print(f'[Obstacle]  Back: {data[0], data[1]}')
+                        print(f'[Obstacle]  Back: {data[0]-1}')
                     elif msgtype == Protocol.RPT_DISPLACEMENT:
                         dl = Protocol.signedbyte(data[0])
                         dr = Protocol.signedbyte(data[1])
-                        #self.locaizer.update_displacement(dl, dr)
+                        self.locaizer.update_displacement(dl, dr)
                         print(f"Displacement:{dl, dr}")
                     elif msgtype == Protocol.RPT_DONE_TASK:
                         if addedinfo == Protocol.DONE_PICKUP:
@@ -293,59 +302,19 @@ class Arduino:
 
     def _move_at_speed(self, dir, speed, timeout = None):
         if timeout is None:
-            timeout = Protocol.CMD_MOTION_SPEED_TIMEOUT
-        self.sercom.send_message(Protocol.encode(
-                Protocol.CMD_MOTION, Protocol.MOTION_MODE_SPEED, dir, [int(speed), timeout]))
+            self.sercom.send_message(Protocol.encode(
+                    Protocol.CMD_MOTION, Protocol.MOTION_MODE_SPEED, dir, [speed]))
+        else:
+            self.sercom.send_message(Protocol.encode(
+                Protocol.CMD_MOTION, Protocol.MOTION_MODE_SPEED, dir, [speed, timeout]))
 
     def _move_to_distance(self, dir, distance, timeout = None):
         if timeout is None:
-            timeout = Protocol.CMD_MOTION_DISTANCE_TIMEOUT
-        self.sercom.send_message(Protocol.encode(
-                Protocol.CMD_MOTION, Protocol.MOTION_MODE_DISTANCE, dir, [int(distance), timeout]))
-
-    """
-    def go_forward(self, speed = None, distance = None, timeout = None):
-        if speed is None and distance is None:
-            raise Exception("Please assign at least one")
-        if speed is not None:
-            self._move_at_speed(Protocol.FORWARD, speed, timeout)
-            if distance is not None:
-                print("Only speed are applied")
-        elif distance is not None:
-            self._move_to_distance(Protocol.FORWARD, distance, timeout)
-
-    def go_backward(self, speed = None, distance = None, timeout = None):        
-        if speed is None and distance is None:
-            raise Exception("Please assign at least one")
-        if speed is not None:
-            self._move_at_speed(Protocol.BACKWARD, speed, timeout)
-            if distance is not None:
-                print("Only speed are applied")
-        elif distance is not None:
-            self._move_to_distance(Protocol.BACKWARD, distance, timeout)
-
-    def turn_left(self, speed = None, distance = None, timeout = None):        
-        if speed is None and distance is None:
-            raise Exception("Please assign at least one")
-        if speed is not None:
-            self._move_at_speed(Protocol.LEFT, speed, timeout)
-            if distance is not None:
-                print("Only speed are applied")
-        elif distance is not None:
-            self._move_to_distance(Protocol.LEFT, distance, timeout)
-
-    def turn_right(self, speed = None, distance = None, timeout = None):        
-        if speed is None and distance is None:
-            raise Exception("Please assign at least one")
-        if speed is not None:
-            if timeout is None:
-                timeout = 10
-            self._move_at_speed(Protocol.RIGHT, speed, timeout)
-            if distance is not None:
-                print("Only speed are applied")
-        elif distance is not None:
-            self._move_to_distance(Protocol.RIGHT, distance, timeout)
-    """
+            self.sercom.send_message(Protocol.encode(
+                    Protocol.CMD_MOTION, Protocol.MOTION_MODE_DISTANCE, dir, [distance]))
+        else:
+            self.sercom.send_message(Protocol.encode(
+                Protocol.CMD_MOTION, Protocol.MOTION_MODE_DISTANCE, dir, [distance, timeout]))
 
     def move(self, dir, speed = None, distance = None, timeout = None):
         """
@@ -357,11 +326,24 @@ class Arduino:
         if speed is None and distance is None:
             raise Exception("Please assign at least one")
         if speed is not None:
-            self._move_at_speed(dir, speed, timeout)
+            self._move_at_speed(dir, int(speed), timeout)
             if distance is not None:
                 print("[Warning] Only speed is applied")
         elif distance is not None:
-            self._move_to_distance(dir, distance, timeout)
+            self._move_to_distance(dir, int(distance), timeout)
+
+    def move_motors(self, left, right, timeout = None):
+        assert left >=0 and left <= 255
+        assert right >=0 and right <= 255
+        if timeout is None:
+            self.sercom.send_message(Protocol.encode(
+                Protocol.CMD_DIRECT_MOTION, data = [left, right]
+            ))
+        else:
+            assert timeout >=0 and timeout <= 255
+            self.sercom.send_message(Protocol.encode(
+                Protocol.CMD_DIRECT_MOTION, data = [left, right, timeout]
+            ))
 
     def pick_up(self):
         self.TASK_UNDERGOING = True
@@ -375,6 +357,17 @@ class Arduino:
         self.TASK_UNDERGOING = True
         self.sercom.send_message(Protocol.encode(Protocol.CMD_ADVFUN, Protocol.ADVFUN_LOCAL_AVOID))
 
+    def set_obstacle_detection(self, enable:bool):
+        """Not implemented yet"""
+        if enable:
+            self.sercom.send_message(
+                Protocol.encode(Protocol.CMD_ADVFUN, Protocol.ADVFUN_ENABLE_OBS_DETECTION)
+            )
+        else:
+            self.sercom.send_message(
+                Protocol.encode(Protocol.CMD_ADVFUN, Protocol.ADVFUN_DISABLE_OBS_DETECTION)
+            )
+
     def stop(self):
         self.move(0, 0)
 
@@ -387,7 +380,7 @@ if __name__ == '__main__':
     # normally it will be "/dev/ttyACM0"
 
     # create an instance of Arduino Controller specifying the port name.
-    ard = Arduino(portName = "COM4")
+    ard = Arduino(portName = "COM6")
     ard.start()
 
     try:
@@ -396,40 +389,18 @@ if __name__ == '__main__':
         # please add code inside 'read' function to deal with these info
         ard.read()
         
-        #print('[whereami]',ard.whereami())
-        ard.move(Protocol.FORWARD,distance=20, timeout=50)
-        for i in range(3):
-            time.sleep(1) # wait for response from arduino
-            ard.read()
+        print('[whereami]',ard.whereami())
+        #ard.move(Protocol.BACKWARD,distance=10, timeout=10)
+        #for i in range(3):
+        #    time.sleep(1) # wait for response from arduino
+        #    ard.read()
         #print('[whereami]',ard.whereami())
         
-        ard.move(Protocol.BACKWARD, distance=10, timeout=50)
-        #print('[whereami]',ard.whereami())
+        print("picking up...")
+        ard.pick_up()
         for i in range(3):
-            time.sleep(1) # wait for response from arduino
+            time.sleep(2) # wait for response from arduino
             ard.read()
-        # stop the robot. it will stop motion immediately (ofc, after receving this message)
-        ard.stop()
-            
-        # turn left in speed of 100
-        # real speed can be calculated as 100/255*2060(min^-1)/60*12cm*pi
-        # rpm = 2060, reduction of gearbox: 60, diameter of the wheel: 12cm
-        # max speed corresponds to 255(the highest value for 1 byte)
-        ard.move(dir=Protocol.LEFT, speed=50, timeout=10) 
-        # the coding of the direction is actually the direction of the motor --
-        # the higher digit for left, the lower one for right, so
-        #           left    right  | value
-        # Forward   1       1      | 3
-        # Backward  0       0      | 0 
-        # Left      0       1      | 1
-        # Right     1       0      | 2 
-        # this might be easier for your code
-        #print('[whereami]',ard.whereami())
-        for i in range(3):
-            time.sleep(1) # wait for response from arduino
-            ard.read()
-        #print('[whereami]',ard.whereami())
     finally:
         ard.end() # close the serial communitaion
-
-
+        
