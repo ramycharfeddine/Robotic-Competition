@@ -14,7 +14,7 @@ class Localization:
         ((0, 160, 0), (7, 255, 255)))
     COLOR_HSV_THRESHOLD = (10, 10, 10, 10)
     FRONT_VECTOR = np.array((FRAME_WIDTH, 0))
-    CAMERA_EXPOSURE = 20
+    CAMERA_EXPOSURE = -7
 
     # Define arena dimensions
     W = 800
@@ -27,8 +27,8 @@ class Localization:
                     camera_pos_bias = (0, -5) 
                     ):
         self.cam_id = camera_id
-        self.cam_error_center_x = cam_error_center_x
-        self.cam_error_center_y = cam_error_center_y
+        self.X_center_frame = int(self.FRAME_WIDTH/2 + cam_error_center_x)
+        self.Y_center_frame = int(self.FRAME_HEIGHT/2 + cam_error_center_y)
         self.camera_pos_bias = camera_pos_bias
     
     def __del__(self):
@@ -38,7 +38,7 @@ class Localization:
         self.cam = cv2.VideoCapture(self.cam_id)
         self.cam.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
         self.cam.set(cv2.CAP_PROP_EXPOSURE, self.CAMERA_EXPOSURE)
-        self.cam.set(cv2.CV_CAP_PROP_BUFFERSIZE, 3)
+        self.cam.set(cv2.CAP_PROP_BUFFERSIZE, 3)
         self.cam.set(cv2.CAP_PROP_FRAME_WIDTH, self.FRAME_WIDTH)
         self.cam.set(cv2.CAP_PROP_FRAME_HEIGHT, self.FRAME_HEIGHT)
     
@@ -48,6 +48,7 @@ class Localization:
         self.cam.release()
 
     def _frame(self, clear_buffer = True):
+        self.cam.set(cv2.CAP_PROP_EXPOSURE, self.CAMERA_EXPOSURE)
         ret, img = self.cam.read()
         if clear_buffer:
             for i in range(3):
@@ -55,6 +56,10 @@ class Localization:
         
         if not ret:
             return None
+
+        mask = np.zeros_like(img)
+        cv2.circle(mask, (self.X_center_frame, self.Y_center_frame), 165, (255, 255, 255), -1)
+        img = cv2.bitwise_and(img, mask)
 
         return img
 
@@ -64,24 +69,27 @@ class Localization:
             if img_original is None:
                 return
         
-        # define the frame properties
-        X_center_frame = self.FRAME_WIDTH/2 + self.cam_error_center_x
-        Y_center_frame = self.FRAME_HEIGHT/2 + self.cam_error_center_y
-
-        img_hsv = cv2.cvtColor(img_original, cv2.COLOR_BGR2HSV)
+        img = img_original.copy()        
+        img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         
         for i in range(4):
             led_mask = self._color_filter(img_hsv, 
                 self.COLOR_HSV_RANGE[i][0], 
                 self.COLOR_HSV_RANGE[i][1],
                 self.COLOR_HSV_THRESHOLD[i])
-            img_led = cv2.bitwise_and(img_original, img_original, mask=led_mask)
+            img_led = cv2.bitwise_and(img, img, mask=led_mask)
+            
+            moment_led = cv2.moments(img_led)
+            x = int(moment_led["m10"] / moment_led["m00"])
+            y = int(moment_led["m01"] / moment_led["m00"])
+            cv2.circle(img_led, (x,y), 10, (255,255,255), 2)
+
             cv2.imshow('led'+str(i), img_led)
 
         # Visualize center for set up
-        cv2.circle(img_original,(int(X_center_frame), int(Y_center_frame)), 10, (0,255,0))
-        cv2.line(img_original, (int(X_center_frame), int(Y_center_frame)), (img_original.shape[1], int(Y_center_frame)), (0, 255, 0), 3) 
-        cv2.imshow("calibration", img_original)
+        cv2.circle(img,(int(self.X_center_frame), int(self.Y_center_frame)), 10, (0,255,0))
+        cv2.line(img, (int(self.X_center_frame), int(self.Y_center_frame)), (img.shape[1], int(self.Y_center_frame)), (0, 255, 0), 3) 
+        cv2.imshow("calibration", img)
 
     @staticmethod
     def _color_filter(img_hsv, hsv_thr_lower, hsv_thr_upper, thr):
@@ -169,9 +177,12 @@ class Localization:
 
     @staticmethod
     def _orientation_by_beacon(index, led_vector, position):
-        tobeacon = Localization._angle(Localization.FRONT_VECTOR, led_vector)
-        beacon_angle = np.arctan2(position[1] - Localization.LED_POS[1,index], position[0] - Localization.LED_POS[0,index])
-        return np.pi + beacon_angle - tobeacon
+        front_to_beacon = Localization._angle(Localization.FRONT_VECTOR, led_vector)
+        beacon_to_zero = Localization._angle(Localization.LED_POS[:, index] - position, [100, 0])
+        return -(front_to_beacon + beacon_to_zero)
+        #tobeacon = Localization._angle(Localization.FRONT_VECTOR, led_vector)
+        #beacon_angle = np.arctan2(position[1] - Localization.LED_POS[1,index], position[0] - Localization.LED_POS[0,index])
+        #return np.pi + beacon_angle - tobeacon
 
     def _localize(self, img):
         # Find the leds by color filtering
@@ -182,9 +193,7 @@ class Localization:
             return None
 
         # the center of the image
-        X_center_frame = self.FRAME_WIDTH/2 + self.cam_error_center_x
-        Y_center_frame = self.FRAME_HEIGHT/2 + self.cam_error_center_y
-        center_frame = np.array([[X_center_frame],[Y_center_frame]])
+        center_frame = np.array([[self.X_center_frame],[self.Y_center_frame]])
         
         # calculate the position
         indices = np.where(available == True)[0] # Choose 3 beacons
@@ -195,9 +204,10 @@ class Localization:
             
         # calculate the orientation
         oris = np.zeros((len(indices),1))
-        for i in indices:
+        for i in range(len(indices)):
             oris[i] = self._orientation_by_beacon(indices[i], led_vectors[:, indices[i]], position) % (2*np.pi)
-        ori = np.mean(oris)
+        ori = np.median(oris)
+        # print(oris)
 
         # camera position to center position
         # TODO
@@ -213,12 +223,23 @@ class Localization:
         return self._localize(img_original)
 
 if __name__ == "__main__":
-    localizer = Localization()
-    img = cv2.imread("Localisation90.png")
-    starter = time.time()
-    state = localizer._localize(img)
-    ender = time.time()
-    print(f'pos ({state[0][0]:.1f},{state[0][1]:.1f}), ori: {state[1]/np.pi*180:.1f}')
-    print(f'it takes {ender-starter}s.')
-    localizer.calibrate(img_original=img)
-    cv2.waitKey(0)
+    localizer = Localization(camera_id=1)
+    # img = cv2.imread("Localisation90.png")
+    localizer.start()
+    while True:
+        img = localizer._frame()
+        cv2.imshow("frame", img)
+        cv2.waitKey(0)
+        starter = time.time()
+        state = localizer._localize(img)
+        ender = time.time()
+        print(f'it takes {ender-starter}s.')
+        if state is None:
+            continue
+        print(f'pos ({state[0][0]:.1f},{state[0][1]:.1f}), ori: {state[1]/np.pi*180:.1f}')
+        try:
+            localizer.calibrate(img_original=img)
+            cv2.waitKey(0)
+        except:
+            print("No result.")
+            time.sleep(5)
