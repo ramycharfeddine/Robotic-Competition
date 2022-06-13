@@ -1,4 +1,3 @@
-from pickle import TRUE
 import numpy as np
 import math
 from protocol import Protocol, Arduino
@@ -39,10 +38,11 @@ class MotionControl:
     EPS_DISTANCE = np.sqrt(ERROR_POS_X**2 + ERROR_POS_Y**2)
     DISTANCE_MODE_SPEED = 15 # 50*0.3cm/s
     NOMINAL_SPEED = 26.6 # nominal speed of the motor at 11.1V
-    BOTTLE_TOO_CLOSE = False
 
     def __init__(self) -> None:
         self.waypoint_list = self.INITIAL_PATH
+        self.BOTTLE_TOO_CLOSE = False
+        self.GOING_BACK = False
 
     @staticmethod
     def _angle2dist(angle):
@@ -92,7 +92,7 @@ class MotionControl:
         return cmd
 
     def go_to_next_waypoint(self, state) -> list: 
-        wp = self.next_waypoint(state)
+        wp = self.waypoint_list[0] #self.next_waypoint(state)
         cmd = self._go_to_waypoint(self, state, wp)
         if len(cmd) == 0: # reached
             self.waypoint_list = self.waypoint_list[1:]
@@ -100,35 +100,5 @@ class MotionControl:
 
         return cmd
 
-    def next_waypoint(self, bottle, obstacle, state): 
-        """decide the next waypoint
-         bottle: [bool(bottle_detected), dist_to_bottle, angle_to_bottle, count_bottles]
-         obstacle: bool saying if there is an obstacle or not"""
-        self.BOTTLE_TOO_CLOSE = False
-
-        EPS_DIST_BOTTLE_HIGH = 50 #[cm]
-        EPS_DIST_BOTTLE_LOW = 30 #[cm]
-        COUNT_BOTTLES = 10 #Number of bottles grasped before going to recycling zone 
-
-        if bottle[3] >= COUNT_BOTTLES:
-            self.waypoint_list = np.insert(self.waypoint_list,0, [0.5,0.5], axis=0)
-            return self.waypoint_list[0]
-
-
-        if bottle[0] and not obstacle:
-            if bottle[1] > EPS_DIST_BOTTLE_HIGH:
-                dist_to_bottle = bottle[1]-EPS_DIST_BOTTLE_HIGH
-            elif (bottle[1] > EPS_DIST_BOTTLE_LOW) and (bottle[1] <= EPS_DIST_BOTTLE_HIGH):
-                dist_to_bottle = bottle[1]-EPS_DIST_BOTTLE_LOW
-            else:
-                '''put the arm down and try to grasp bottle so the robot will think that 
-                he picked up a bottle and if didn't then he'll go to next target and loose the bottle'''
-                dist_to_bottle = bottle[1]-EPS_DIST_BOTTLE_LOW
-                self.BOTTLE_TOO_CLOSE = True
-                
-            x_bottle = state[0][0] + dist_to_bottle*np.sin(bottle[2])
-            y_bottle = state[0][1] + dist_to_bottle*np.sin(bottle[2])
-            self.waypoint_list = np.insert(self.waypoint_list,0, [x_bottle,y_bottle], axis=0)
-
-
-        return self.waypoint_list[0]
+    def insert_waypoint(self, wp):
+        self.waypoint_list = np.insert(self.waypoint_list,0, wp, axis=0)

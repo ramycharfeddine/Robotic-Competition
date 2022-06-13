@@ -225,6 +225,7 @@ class Arduino:
         self.sercom = SerialComm(portName=portName)
         self.OBS_WARN = False
         self.TASK_UNDERGOING = False # pick bottle/ empty the storage/ local avoidance
+        self.displacements = []
 
     def __del__(self):
         self.end()
@@ -238,6 +239,11 @@ class Arduino:
 
     def end(self):
         self.sercom.end()
+
+    def get_displacements(self):
+        last_displacements = self.displacements.copy()
+        self.displacements.clear()
+        return last_displacements
 
     def read(self):
         buffer = self.sercom.read_msg()
@@ -274,7 +280,7 @@ class Arduino:
                     elif msgtype == Protocol.RPT_DISPLACEMENT:
                         dl = Protocol.signedbyte(data[0])
                         dr = Protocol.signedbyte(data[1])
-                        self.locaizer.update_displacement(dl, dr)
+                        self.displacements.append([dl, dr])
                         print(f"Displacement:{dl, dr}")
                     elif msgtype == Protocol.RPT_DONE_TASK:
                         if addedinfo == Protocol.DONE_PICKUP:
