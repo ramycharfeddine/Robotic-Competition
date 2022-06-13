@@ -22,8 +22,8 @@ RADIUS = 60*10**(-3)   # [m]  # wheel radius of the robot
 
 # Initialize the camera for localisation: 
 # In test room set exposure as luminosity = 0% and Intensity of colors = 12%
-ERROR_CENTER_Y = 5
-ERROR_CENTER_X = 10
+ERROR_CENTER_Y = 15
+ERROR_CENTER_X = -5
 cam_port = 0
 cam = cv2.VideoCapture(cam_port,cv2.CAP_DSHOW)
 cam.set(cv2.CAP_PROP_EXPOSURE,-7)

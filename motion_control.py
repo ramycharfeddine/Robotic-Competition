@@ -23,14 +23,14 @@ class MotionCmd:
         self.dist = dist
     
     def timeout4speed(self, speed):
-        assert speed > 0 and speed < 0.765
+        assert speed > 0 and speed < 76.5
         return 0.1+self.dist/speed
 
     def timeout4distance(self):
         return 0.1+self.dist/MotionControl.DISTANCE_MODE_SPEED
 
 class MotionControl:
-    INITIAL_PATH = np.array([[1,1], [7,1],[5,5], [0,5], [0.5,0.5]])
+    INITIAL_PATH = np.array([[100,100], [700,100],[500,500], [0,500], [50,50]])
     WHEEL_SPACING_FACTOR = 28 # distance btw wheels (53cm)/2
     EPS_ANGLE = math.radians(10) # ~10 degree
     ERROR_POS_X = 20 # cm
@@ -41,8 +41,6 @@ class MotionControl:
 
     def __init__(self) -> None:
         self.waypoint_list = self.INITIAL_PATH
-        self.BOTTLE_TOO_CLOSE = False
-        self.GOING_BACK = False
 
     @staticmethod
     def _angle2dist(angle):
@@ -75,25 +73,22 @@ class MotionControl:
         cmd = []
 
         dist_target, angle_target = self._cart2polar(waypoint - state[0])
-        #angle_rotation = self._get_angle_to_turn(angle_target, state[1])
-        angle_rotation = angle_target - state[1]
-        print(angle_rotation)
+        angle_rotation = self._get_angle_to_turn(state[1], angle_target)
+        #angle_rotation = angle_target - state[1]
+        print("angle_rotation: ", angle_rotation*180.0/np.pi)
 
         if dist_target > self.EPS_DISTANCE:
-            # we don't need to turn if we have reached the waypoint
-            if not self.BOTTLE_TOO_CLOSE: 
-                cmd.append(MotionCmd(3, dist_target))
-            else:
-                cmd.append(MotionCmd(0, dist_target))
+            cmd.append(MotionCmd(3, dist_target))
             if abs(angle_rotation) > self.EPS_ANGLE:
                 cmd.insert(0, MotionCmd(1+1*(angle_rotation>0), 
-                                        self._angle2dist(angle_rotation)))
+                                        self._angle2dist(abs(angle_rotation))))
 
         return cmd
 
     def go_to_next_waypoint(self, state) -> list: 
         wp = self.waypoint_list[0] #self.next_waypoint(state)
-        cmd = self._go_to_waypoint(self, state, wp)
+        print("going to", wp)
+        cmd = self._go_to_waypoint(state, wp)
         if len(cmd) == 0: # reached
             self.waypoint_list = self.waypoint_list[1:]
             # return an empty cmd list

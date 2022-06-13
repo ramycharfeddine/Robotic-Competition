@@ -32,7 +32,7 @@ class Walle:
         if not self.ard.start():
             print("Initialization Failed: Check the connection to Arduino")
         
-        print("Initializing the localizetion camera...")
+        print("Initializing the localization camera...")
         self.localizer = Localization(camera_id=localize_camid)
         self.localizer.start()
         print("Localization test...")
@@ -40,9 +40,9 @@ class Walle:
         if pose is None:
             print("Initialization Failed: Check the localization")
             pose = [[100, 100], np.pi/2]
-        elif (pose[0][0] - 100) ** 2 + (pose[0][0] - 100) ** 2 > 20 ** 2 or abs(pose[1] - np.pi/2) > 0.2:
-            print("[Localization] Wrong initial pose")
-            pose = [[100, 100], np.pi/2]
+        #elif (pose[0][0] - 100) ** 2 + (pose[0][0] - 100) ** 2 > 20 ** 2 or abs(pose[1] - np.pi/2) > 0.2:
+        #    print("[Localization] Wrong initial pose")
+        #    pose = [[100, 100], np.pi/2]
         
         """
         print("Initializing the bottle detection camera...")
@@ -70,6 +70,7 @@ class Walle:
         self.distance_from_last_detection = 0 # the counter for bottle detection
         self.state = 0 # Path follow, Bottle collection, Obstacle avoidance
         self.check_bottle_waypoint_finished = False
+        self.collect_waypoint_finished = False
         self.GOING_BACK = False
         print("-- Initialization Done!")
 
@@ -107,15 +108,18 @@ class Walle:
     def run_motion_cmd(self, cmd:MotionCmd, fast = None) -> None:
         if fast is None:
             # decide it by distance
-            fast = cmd.dist > 0.5
+            fast = cmd.dist > 50
         if fast:
             # fast motion by speed mode
-            speed = self.NOMINAL_SPEED_VALUE
+            speed = MotionControl.NOMINAL_SPEED 
             timeout = cmd.timeout4speed(speed)
-            self.ard.move(cmd.dir, speed = speed, timeout=timeout)
+            self.ard.move(cmd.dir, speed =int(speed/Protocol.MOTION_SPEED_FACTOR), timeout=int(timeout/0.1))
         else:
             # accurate motion by distance
-            self.ard.move(cmd.dir, cmd.dist, cmd.timeout4distance())
+            timeout = cmd.timeout4distance()
+            self.ard.move(cmd.dir, distance=int(cmd.dist), timeout=int(timeout/0.1))
+        time.sleep(timeout)
+
 
     def should_detect_bottles(self):
         return self.distance_from_last_detection > self.DETECTION_DISTANCE_INTERVAL
@@ -149,6 +153,7 @@ class Walle:
         # follow the path
         cmds = self.mc.go_to_next_waypoint(self.pose) # if reached, the list is empty
         for cmd in cmds: 
+            print("cmd:", cmd.dir, cmd.dist)
             self.distance_from_last_detection += cmd.dist
             self.run_motion_cmd(cmd)
         
@@ -171,7 +176,7 @@ class Walle:
         starter = time.time()
         while not finished: 
             self.ard.read() # deal with the info from Arduino
-            if self.ard.OBS_WARN:
+            if self.ard.OBS_WARN and not self.state == 1:
                 # local avoidance
                 self.local_avoidance()
                 # Motion stopped because of the obstacle in front
@@ -186,12 +191,13 @@ class Walle:
             # self.odometry(self.ard.get_displacements())
 
             # localization
-            pose = self.localizer.get_pose() 
-            if pose is None: # some error in localization                
-                print("[Error] top Camera fails to get frame")
-                self.ard.move(Protocol.FORWARD, distance=10)
-                continue
-            self.pose = pose
+            self.pose = self.get_pose() 
+            #if pose is None: # some error in localization                
+            #    print("[Error] top Camera fails to get frame")
+            #    self.ard.move(Protocol.FORWARD, distance=10)
+            #    continue
+            # self.pose = pose
+            print(f"current pose: {self.pose[0]}, ori: {self.pose[1]*180.0/np.pi}")
 
             if self.state == 0: 
                 # main task
@@ -243,5 +249,5 @@ class Walle:
                     self.GOING_BACK = True
 
 if __name__ == "__main__":
-    walle = Walle(localize_camid=1, port_name="COM6")
-    # walle.start()
+    walle = Walle(localize_camid=0, port_name="COM4")
+    walle.start()

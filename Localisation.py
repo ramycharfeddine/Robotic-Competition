@@ -35,7 +35,7 @@ class Localization:
         self.end()
 
     def start(self):
-        self.cam = cv2.VideoCapture(self.cam_id)
+        self.cam = cv2.VideoCapture(self.cam_id, cv2.CAP_DSHOW)
         self.cam.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
         self.cam.set(cv2.CAP_PROP_EXPOSURE, self.CAMERA_EXPOSURE)
         self.cam.set(cv2.CAP_PROP_BUFFERSIZE, 3)
@@ -223,7 +223,7 @@ class Localization:
         return self._localize(img_original)
 
 if __name__ == "__main__":
-    localizer = Localization(camera_id=1)
+    localizer = Localization(camera_id=0)
     # img = cv2.imread("Localisation90.png")
     localizer.start()
     while True:

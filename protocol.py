@@ -129,7 +129,7 @@ class Protocol:
 
     MOTION_MODE_SPEED = 0
     MOTION_MODE_DISTANCE = 1
-    MOTION_SPEED_FACTOR = 0.003 # 0.3cm/s for 1 unit; max. 255
+    MOTION_SPEED_FACTOR = 0.3 # 0.3cm/s for 1 unit; max. 255
 
     FORWARD = 3
     LEFT = 1
@@ -291,6 +291,7 @@ class Arduino:
                             print("[Done] Storage emptyed")
                         elif addedinfo == Protocol.DONE_AVOIDANCE:
                             # todo
+                            self.OBS_WARN = False
                             print("[Done] Obstacle free")
                         else: raise Exception("Unknown task type.")
                         self.TASK_UNDERGOING = False #TODO: a timeout may needed
@@ -327,11 +328,13 @@ class Arduino:
         dir: Protocol.[LEFT/RIGHT/FORWARD/BACKWARD]
         speed: 1 ~ 0.3cm/s -- 255 ~ 76.5cm/s
         distance: cm
+        timeout: 100 ms
         """
         assert dir >= 0 and dir <=3
         if speed is None and distance is None:
             raise Exception("Please assign at least one")
         if speed is not None:
+            print("speed: ",speed)
             self._move_at_speed(dir, int(speed), timeout)
             if distance is not None:
                 print("[Warning] Only speed is applied")
