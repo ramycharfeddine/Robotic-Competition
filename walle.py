@@ -1,6 +1,6 @@
 from protocol import Protocol, Arduino
 from Localisation import Localization
-from detector import Detector
+# from detector import Detector
 from motion_control import MotionControl, MotionCmd
 import numpy as np
 import time
@@ -44,6 +44,7 @@ class Walle:
             print("[Localization] Wrong initial pose")
             pose = [[100, 100], np.pi/2]
         
+        """
         print("Initializing the bottle detection camera...")
         self.detector = Detector(
             model_path = model_path,
@@ -61,7 +62,7 @@ class Walle:
             else:
                 print(f"the nearest bottle is in {ret[0]:.1f}cm away, {ret[1]/np.pi*180:.1f} degree.")
                 break
-        
+        """
         self.mc = MotionControl()
 
         self.bottle_collected = 0
@@ -79,7 +80,7 @@ class Walle:
         self.ard.stop()
         self.ard.end()
         self.localizer.end()
-        self.detector.end()
+        # self.detector.end()
 
     def get_pose(self):
         pose = self.localizer.get_pose()
@@ -196,6 +197,7 @@ class Walle:
                 # main task
                 if self.should_detect_bottles():
                     # detect the bottles
+                    """
                     ret = self.detector.get_nearest_bottle()
                     self.distance_from_last_detection = 0
                     if ret is None:
@@ -221,7 +223,7 @@ class Walle:
                         else: # too close
                             self.ard.move(Protocol.BACKWARD, distance=rd - self.DIST_BOTTLE_COLLECT + 10)
                             self.check_bottle_waypoint_finished = True                            
-                        
+                    """    
                 else:
                     # path following
                     self.follow_path()
@@ -240,3 +242,6 @@ class Walle:
                     self.mc.insert_waypoint(self.RECYCLING_ZONE)
                     self.GOING_BACK = True
 
+if __name__ == "__main__":
+    walle = Walle(localize_camid=1, port_name="COM6")
+    # walle.start()
