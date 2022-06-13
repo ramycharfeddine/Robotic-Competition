@@ -25,8 +25,3 @@ def init_path(x_init, y_init):
     abs_pos[:,1:2] = abs_pos[:,1:2]*H/8
 
     return abs_pos
-
-abs_pos = init_path(1, 1)
-plt.figure(figsize=(8,8))
-plt.plot(abs_pos[:,0:1], abs_pos[:,1:2], color="r", marker="o")
-print(abs_pos)
