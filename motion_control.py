@@ -31,7 +31,7 @@ class MotionCmd:
 
 class MotionControl:
     INITIAL_PATH = np.array([[1,1], [7,1],[5,5], [0,5], [0.5,0.5]])
-    WHEEL_SPACING_FACTOR = 26.5 # distance btw wheels (53cm)/2
+    WHEEL_SPACING_FACTOR = 28 # distance btw wheels (53cm)/2
     EPS_ANGLE = math.radians(10) # ~10 degree
     ERROR_POS_X = 20 # cm
     ERROR_POS_Y = 20 # cm
