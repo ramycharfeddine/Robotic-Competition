@@ -330,6 +330,7 @@ class Arduino:
         distance: cm
         timeout: 100 ms
         """
+        print(f"[Motion] dir:{dir}, speed {speed}, distance {distance}, timeout {timeout}")
         assert dir >= 0 and dir <=3
         if speed is None and distance is None:
             raise Exception("Please assign at least one")

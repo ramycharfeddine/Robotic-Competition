@@ -71,7 +71,8 @@ class Walle:
         self.state = 0 # Path follow, Bottle collection, Obstacle avoidance
         self.check_bottle_waypoint_finished = False
         self.collect_waypoint_finished = False
-        self.GOING_BACK = False
+        self.waypoint_going_back = False
+        self.PAUSE = False
         print("-- Initialization Done!")
 
     def __del__(self):
@@ -96,6 +97,10 @@ class Walle:
         # use the last pose and odometry
         self.odometry(self.ard.get_displacements())
         return self.pose
+
+    @staticmethod
+    def __show_pose(pose):
+        return f"{pose[0][0]:.1f}, {pose[0][1]:.1f}, {pose[1]/np.pi*180.0:.1f}"
         
     def odometry(self, displacements):
         for dl, dr in displacements:
@@ -104,6 +109,7 @@ class Walle:
             t = self.pose[1] + a/2
             self.pose[0] = self.pose[0] + p*np.array([np.cos(t), np.sin(t)])
             self.pose[1] += a
+            print(f"[Odomtry] disp {dl}, {dr}; new pose {self.__show_pose(self.pose)}")
 
     def run_motion_cmd(self, cmd:MotionCmd, fast = None) -> None:
         if fast is None:
@@ -113,7 +119,7 @@ class Walle:
             # fast motion by speed mode
             speed = MotionControl.NOMINAL_SPEED 
             timeout = cmd.timeout4speed(speed)
-            self.ard.move(cmd.dir, speed =int(speed/Protocol.MOTION_SPEED_FACTOR), timeout=int(timeout/0.1))
+            self.ard.move(cmd.dir, speed = int(speed/Protocol.MOTION_SPEED_FACTOR), timeout=int(timeout/0.1))
         else:
             # accurate motion by distance
             timeout = cmd.timeout4distance()
@@ -122,6 +128,10 @@ class Walle:
 
 
     def should_detect_bottles(self):
+        if self.waypoint_going_back:
+            return False
+        elif self.collect_waypoint_finished:
+            return False
         return self.distance_from_last_detection > self.DETECTION_DISTANCE_INTERVAL
     
     def special_waypoint(self):
@@ -134,7 +144,7 @@ class Walle:
             self.state = 2 #
             self.collect_waypoint_finished = False
             self.bottle_collected += 1
-        elif self.GOING_BACK:
+        elif self.waypoint_going_back:
             # empty the storage
             # turn to 45 deg
             angle_rotation = np.pi/4 - self.pose[1]
@@ -143,7 +153,7 @@ class Walle:
             self.ard.empty_storage() # TODO in Arduino: shake?
             self.state = 3 # empty
             self.bottle_collected = 0
-            self.GOING_BACK = False
+            self.waypoint_going_back = False
         # else: it's not special
 
     def follow_path(self):
@@ -165,7 +175,11 @@ class Walle:
         # simple strategy: let the arduino do everything!
         self.ard.do_local_avoidance()
 
-    def start(self, state = None):
+    def pause(self):
+        self.ard.stop()
+        self.PAUSE = True
+
+    def start(self, state = None, debug = False):
         """Start the whole program!
 
         Strategy:
@@ -175,6 +189,10 @@ class Walle:
         finished = False
         starter = time.time()
         while not finished: 
+            if debug:
+                a = input("Debug mode, enter to continue")
+            # TODO: check pause
+
             self.ard.read() # deal with the info from Arduino
             if self.ard.OBS_WARN and not self.state == 1:
                 # local avoidance
@@ -240,14 +258,16 @@ class Walle:
             # TODO
             if self.bottle_collected >= self.STORAGE:
                 self.mc.insert_waypoint(self.RECYCLING_ZONE)
-                self.GOING_BACK = True
+                self.waypoint_going_back = True
             else:
                 # running out of time! let's go back
                 cur_time = time.time()
                 if cur_time - starter < 8 * 60:
                     self.mc.insert_waypoint(self.RECYCLING_ZONE)
-                    self.GOING_BACK = True
+                    self.waypoint_going_back = True
+                    self.check_bottle_waypoint_finished = False
+                    self.collect_waypoint_finished = False
 
 if __name__ == "__main__":
     walle = Walle(localize_camid=0, port_name="COM4")
-    walle.start()
+    walle.start(debug=True)
