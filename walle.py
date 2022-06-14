@@ -69,6 +69,7 @@ class Walle:
 
         self.bottle_collected = 0
         self.pose = pose
+        print(self.__show_pose(self.pose))
         self.distance_from_last_detection = 0 # the counter for bottle detection
         self.state = 0 # Path follow, Bottle collection, Obstacle avoidance
         self.wpthings = 0 # noting - 0; collect bottle - 1 ; 2 - check the bottle; 3 - going back
@@ -76,6 +77,10 @@ class Walle:
         # self.collect_waypoint_finished = False
         # self.waypoint_going_back = False
         self.PAUSE = False
+        self.starter = time.time()
+        self.motion_timer_start = 0
+        self.motion_timeout = 0
+        self.motion_buffer = []
         print("-- Initialization Done!")
 
     @staticmethod
@@ -103,6 +108,7 @@ class Walle:
             self.ard.get_displacements() # clear the displacements buffer
             return self.pose
         
+        print("[Position]", self.pose, type(self.pose[0]))
         # use the last pose and odometry
         self.odometry(self.ard.get_displacements())
         return self.pose
@@ -114,7 +120,7 @@ class Walle:
     def odometry(self, displacements):
         for dl, dr in displacements:
             p = (dl + dr)/2.0
-            a = np.arctan2(dr - dl, self.WHEEL_DISTANCE)
+            a = np.arctan2(dr - dl, 2*self.WHEEL_DISTANCE*0.8)
             t = self.pose[1] + a/2
             self.pose[0] = self.pose[0] + p*np.array([np.cos(t), np.sin(t)])
             self.pose[1] += a
@@ -133,7 +139,8 @@ class Walle:
             # accurate motion by distance
             timeout = cmd.timeout4distance()
             self.ard.move(cmd.dir, distance=int(cmd.dist), timeout=int(timeout/0.1))
-        time.sleep(timeout)
+        self.motion_timer_start = time.time()
+        self.motion_timeout = timeout
 
 
     def should_detect_bottles(self):
@@ -144,7 +151,7 @@ class Walle:
     
     def special_waypoint(self):
         if self.wpthings == 0:
-            return
+            return False
         elif self.wpthings == 1:
             self.distance_from_last_detection = self.DETECTION_DISTANCE_INTERVAL + 1
             self.wpthings = 0
@@ -165,20 +172,38 @@ class Walle:
             self.bottle_collected = 0
             self.wpthings = 0
         # else: it's not special
+        
+            if len(self.mc.waypoint_list) == 0:
+                # all way points finished
+                return True
+        return False
 
     def follow_path(self):
         # Localization
         # should we stop first to get a better image?
 
+        if(self.motion_timeout + self.motion_timer_start > time.time()):
+            return False
+
+        # check the buffer
+        if len(self.motion_buffer) > 0:
+            self.run_motion_cmd(self.motion_buffer[0]) 
+            self.motion_buffer = self.motion_buffer[1:]
+            return False
+
         # follow the path
         cmds = self.mc.go_to_next_waypoint(self.pose) # if reached, the list is empty
-        for cmd in cmds: 
-            print("cmd:", cmd.dir, cmd.dist)
-            self.distance_from_last_detection += cmd.dist
-            self.run_motion_cmd(cmd)
-        
         if len(cmds) == 0:
-            self.special_waypoint()
+            print("waypoint finished")
+            return self.special_waypoint()
+        else:
+            self.motion_buffer = cmds
+        # # do the first one
+        # for cmd in cmds: 
+        #     print("cmd:", cmd.dir, cmd.dist)
+        #     self.distance_from_last_detection += cmd.dist
+        #     self.run_motion_cmd(cmd)
+        return False
 
     def local_avoidance(self):
         # todo
@@ -196,8 +221,10 @@ class Walle:
         """
         if not (state is None):
             self.state = state # maybe useful for resume
+        else:
+            self.starter = time.time()
         finished = False
-        starter = time.time()
+        print("start time", self.starter)
         while not finished: 
             if debug:
                 a = input("Debug mode, enter to continue")
@@ -206,9 +233,12 @@ class Walle:
             self.ard.read() # deal with the info from Arduino
             if self.ard.OBS_WARN and not self.state == 1:
                 # local avoidance
+                print("stopped because of the obstacle")
                 self.local_avoidance()
                 # Motion stopped because of the obstacle in front
                 self.state = 1
+                self.motion_timeout = 0
+                self.motion_buffer = []
             
             if self.ard.TASK_UNDERGOING:
                 continue
@@ -226,10 +256,16 @@ class Walle:
             #    continue
             # self.pose = pose
             print(f"current pose: {self.pose[0]}, ori: {self.pose[1]*180.0/np.pi}")
+            if debug:
+                a = input("Debug mode, enter to continue")
 
             if self.state == 0: 
                 # main task
                 if self.should_detect_bottles():
+                    print("bottle detection")
+                    self.distance_from_last_detection = 0
+                    self.motion_timeout = 0
+                    self.motion_buffer = []
                     # detect the bottles
                     """
                     ret = self.detector.get_nearest_bottle()
@@ -265,20 +301,24 @@ class Walle:
                     """    
                 else:
                     # path following
-                    self.follow_path()
+                    print("follow the path")
+                    finished = self.follow_path()
             elif self.state == 1:# local avoidance
                 continue
 
             # decide next waypoint
             # TODO
             if self.bottle_collected >= self.STORAGE:
+                print("so many bottles, let's go back")
                 self.mc.insert_waypoint(self.RECYCLING_ZONE)
                 self.wpthings = 3
                 #self.waypoint_going_back = True
             else:
                 # running out of time! let's go back
                 cur_time = time.time()
-                if cur_time - starter < 8 * 60:
+                if cur_time - self.starter > 8 * 60 and not self.wpthings == 3:
+                    print("curtime", cur_time)
+                    print("running out of time! let's go back")
                     self.mc.insert_waypoint(self.RECYCLING_ZONE)
                     self.wpthings = 3
                     #self.waypoint_going_back = True
@@ -287,4 +327,4 @@ class Walle:
 
 if __name__ == "__main__":
     walle = Walle(localize_camid=0, port_name="COM4")
-    walle.start(debug=True)
+    walle.start(debug=False)

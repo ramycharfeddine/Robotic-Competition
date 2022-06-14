@@ -173,7 +173,7 @@ class Localization:
         xr = float(x2 + (k31_p*(y12_p-y23_p))/D)
         yr = float(y2 + (k31_p*(x23_p - x12_p))/D)
 
-        return xr,yr
+        return np.array([xr,yr])
 
     @staticmethod
     def _orientation_by_beacon(index, led_vector, position):
@@ -212,7 +212,7 @@ class Localization:
         # camera position to center position
         # TODO
 
-        return position, ori
+        return [position, ori]
     
     def get_pose(self): # rename it because I want to use 'state' for more general things
         # TODO: should we use odometry for faster speed?
