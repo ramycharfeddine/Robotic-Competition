@@ -30,14 +30,22 @@ class MotionCmd:
         return 0.1+self.dist/MotionControl.DISTANCE_MODE_SPEED
 
 class MotionControl:
-    INITIAL_PATH = np.array([[100,100], [700,100],[500,500], [100,700], [50,50]])
+    INITIAL_PATH = np.array([[200,200], [100,250], [200,350], [100,450], [75,700], [200,750], [150,600], [350,600],
+                             [350,700], [400,750], [450,700], [450,500], [300,450], [400,350], [550,500], [750,400],
+                             [750,350], [400,300], [350,250], [750,250], [700,50], [500,125], [500,50], [425,50], 
+                             [375,150], [300,50], [300,200], [200,200], [75,75]])
+
+    #INITIAL_PATH = np.array([[100,700], [400,700], [400,400], [600,400], [600,100],[100,100]])
+
+    #INITIAL_PATH = np.array([ [400,700], [400,400]])
+
     WHEEL_SPACING_FACTOR = 28 # distance btw wheels (53cm)/2
-    EPS_ANGLE = math.radians(10) # ~10 degree
-    ERROR_POS_X = 20 # cm
-    ERROR_POS_Y = 20 # cm
+    EPS_ANGLE = math.radians(15) # ~10 degree
+    ERROR_POS_X = 50 # cm
+    ERROR_POS_Y = 50 # cm
     EPS_DISTANCE = np.sqrt(ERROR_POS_X**2 + ERROR_POS_Y**2)
     DISTANCE_MODE_SPEED = 15 # 50*0.3cm/s
-    NOMINAL_SPEED = 26.6 # nominal speed of the motor at 11.1V
+    NOMINAL_SPEED = 35 #26.6 # nominal speed of the motor at 11.1V
 
     def __init__(self) -> None:
         self.waypoint_list = self.INITIAL_PATH
