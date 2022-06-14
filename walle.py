@@ -20,6 +20,7 @@ class Walle:
     RECYCLING_ZONE = [0.5, 0.5]
     WHEEL_DISTANCE = MotionControl.WHEEL_SPACING_FACTOR # TODO
     PATH_FOLLOW_CHECK_INTERVAL = 1 # every second
+    LOCAL_AVOID_MEMORY = 10 # s
 
     def __init__(self, 
                     port_name = "/dev/ttyACM0", 
@@ -83,6 +84,8 @@ class Walle:
         self.motion_timeout = 0
         self.motion_buffer = []
         self.path_follow_timer = 0
+        self.local_avoid_timer = 0
+        self.avoid_direction = False
         print("-- Initialization Done!")
 
     @staticmethod
@@ -111,12 +114,9 @@ class Walle:
             self.pose = pose
             self.ard.read()
             self.ard.get_displacements() # clear the displacements buffer
-            return self.pose
         
-        print("[Position]", self.pose, type(self.pose[0]))
         # use the last pose and odometry
         self.odometry(self.ard.get_displacements())
-        return self.pose
 
     @staticmethod
     def __show_pose(pose):
@@ -128,8 +128,8 @@ class Walle:
             a = np.arctan2(dr - dl, 2*self.WHEEL_DISTANCE*0.8)
             t = self.pose[1] + a/2
             self.pose[0] = self.pose[0] + p*np.array([np.cos(t), np.sin(t)])
-            self.pose[1] += a
-            print(f"[Odomtry] disp {dl}, {dr}; new pose {self.__show_pose(self.pose)}")
+            self.pose[1] = (self.pose[1] + a) % 2*np.pi
+            # print(f"[Odomtry] disp {dl}, {dr}; new pose {self.__show_pose(self.pose)}")
 
     def run_motion_cmd(self, cmd:MotionCmd, fast = None) -> None:
         if fast is None:
@@ -193,7 +193,7 @@ class Walle:
             if(cur_time > self.path_follow_timer + self.PATH_FOLLOW_CHECK_INTERVAL):
                 # we should decide weither deviated from the path too much
                 # strategy: just stop and redo path following
-                self.ard.stop()
+                # self.ard.stop()
                 self._clear_motion_buffer()
             else:
                 # ok just sleep
@@ -224,10 +224,14 @@ class Walle:
         # todo
         # simple strategy: let the arduino do everything!
         # decide the direction
-        wp = self.mc.waypoint_list[0]
-        dist_target, angle_target = self.mc._cart2polar(wp - self.pose[0])
-        angletoturn = self.mc._get_angle_to_turn(self.pose[1], angle_target)
-        self.ard.do_local_avoidance(angletoturn > 0)
+        cur_time = time.time()
+        if cur_time > self.local_avoid_timer + self.LOCAL_AVOID_MEMORY:
+            wp = self.mc.waypoint_list[0]
+            dist_target, angle_target = self.mc._cart2polar(wp - self.pose[0])
+            angletoturn = self.mc._get_angle_to_turn(self.pose[1], angle_target)
+            self.avoid_direction = angletoturn < 0
+        self.local_avoid_timer = cur_time
+        self.ard.do_local_avoidance(self.avoid_direction)
 
     def pause(self):
         self.ard.stop()
@@ -243,7 +247,7 @@ class Walle:
         else:
             self.starter = time.time()
         finished = False
-        print("start time", self.starter)
+        #print("start time", self.starter)
         while not finished: 
             if debug:
                 a = input("Debug mode, enter to continue")
@@ -253,7 +257,8 @@ class Walle:
             if self.ard.OBS_WARN:
                 if not self.state == 1:
                     # local avoidance
-                    print("stopped because of the obstacle")
+                    #
+                    # print("stopped because of the obstacle")
                     self.local_avoidance()
                     # Motion stopped because of the obstacle in front
                     self.state = 1
@@ -270,20 +275,21 @@ class Walle:
             # self.odometry(self.ard.get_displacements())
 
             # localization
-            self.pose = self.get_pose() 
+            self.get_pose() 
+            print("[Position]", self.__show_pose(self.pose))
             #if pose is None: # some error in localization                
             #    print("[Error] top Camera fails to get frame")
             #    self.ard.move(Protocol.FORWARD, distance=10)
             #    continue
             # self.pose = pose
-            print(f"current pose: {self.pose[0]}, ori: {self.pose[1]*180.0/np.pi}")
+            #print(f"current pose: {self.pose[0]}, ori: {self.pose[1]*180.0/np.pi}")
             if debug:
                 a = input("Debug mode, enter to continue")
 
             if self.state == 0: 
                 # main task
                 if self.should_detect_bottles():
-                    print("bottle detection")
+                    #print("bottle detection")
                     self.distance_from_last_detection = 0
                     self._clear_motion_buffer()
                     # detect the bottles
@@ -321,7 +327,7 @@ class Walle:
                     """    
                 else:
                     # path following
-                    print("follow the path")
+                    #print("follow the path")
                     finished = self.follow_path()
             elif self.state == 1:# local avoidance
                 continue
@@ -329,7 +335,7 @@ class Walle:
             # decide next waypoint
             # TODO
             if self.bottle_collected >= self.STORAGE:
-                print("so many bottles, let's go back")
+                #print("so many bottles, let's go back")
                 self.mc.insert_waypoint(self.RECYCLING_ZONE)
                 self.wpthings = 3
                 #self.waypoint_going_back = True
@@ -337,13 +343,15 @@ class Walle:
                 # running out of time! let's go back
                 cur_time = time.time()
                 if cur_time - self.starter > 8 * 60 and not self.wpthings == 3:
-                    print("curtime", cur_time)
-                    print("running out of time! let's go back")
+                    #print("curtime", cur_time)
+                    #print("running out of time! let's go back")
                     self.mc.insert_waypoint(self.RECYCLING_ZONE)
                     self.wpthings = 3
                     #self.waypoint_going_back = True
                     self.check_bottle_waypoint_finished = False
                     self.collect_waypoint_finished = False
+            if not debug:
+                time.sleep(0.1) # avoid too much output
 
 if __name__ == "__main__":
     walle = Walle(localize_camid=0, port_name="COM4")
