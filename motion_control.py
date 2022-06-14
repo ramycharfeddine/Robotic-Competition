@@ -30,7 +30,7 @@ class MotionCmd:
         return 0.1+self.dist/MotionControl.DISTANCE_MODE_SPEED
 
 class MotionControl:
-    INITIAL_PATH = np.array([[100,100], [700,100],[500,500], [0,500], [50,50]])
+    INITIAL_PATH = np.array([[100,100], [700,100],[500,500], [100,700], [50,50]])
     WHEEL_SPACING_FACTOR = 28 # distance btw wheels (53cm)/2
     EPS_ANGLE = math.radians(10) # ~10 degree
     ERROR_POS_X = 20 # cm
@@ -87,7 +87,7 @@ class MotionControl:
 
     def go_to_next_waypoint(self, state) -> list: 
         wp = self.waypoint_list[0] #self.next_waypoint(state)
-        print("going to", wp)
+        print("[motion control] going to", wp)
         cmd = self._go_to_waypoint(state, wp)
         if len(cmd) == 0: # reached
             self.waypoint_list = self.waypoint_list[1:]
