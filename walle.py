@@ -19,6 +19,7 @@ class Walle:
     STORAGE = 10
     RECYCLING_ZONE = [0.5, 0.5]
     WHEEL_DISTANCE = MotionControl.WHEEL_SPACING_FACTOR # TODO
+    PATH_FOLLOW_CHECK_INTERVAL = 1 # every second
 
     def __init__(self, 
                     port_name = "/dev/ttyACM0", 
@@ -81,6 +82,7 @@ class Walle:
         self.motion_timer_start = 0
         self.motion_timeout = 0
         self.motion_buffer = []
+        self.path_follow_timer = 0
         print("-- Initialization Done!")
 
     @staticmethod
@@ -90,6 +92,9 @@ class Walle:
             return True
         return False
     
+    def _clear_motion_buffer(self):        
+        self.motion_timeout = 0
+        self.motion_buffer = []
 
     def __del__(self):
         self.end()
@@ -182,8 +187,17 @@ class Walle:
         # Localization
         # should we stop first to get a better image?
 
-        if(self.motion_timeout + self.motion_timer_start > time.time()):
-            return False
+        cur_time = time.time()
+        if(cur_time < self.motion_timeout + self.motion_timer_start):
+            # last command haven't been executed
+            if(cur_time > self.path_follow_timer + self.PATH_FOLLOW_CHECK_INTERVAL):
+                # we should decide weither deviated from the path too much
+                # strategy: just stop and redo path following
+                self.ard.stop()
+                self._clear_motion_buffer()
+            else:
+                # ok just sleep
+                return False
 
         # check the buffer
         if len(self.motion_buffer) > 0:
@@ -198,6 +212,7 @@ class Walle:
             return self.special_waypoint()
         else:
             self.motion_buffer = cmds
+            self.path_follow_timer = time.time()
         # # do the first one
         # for cmd in cmds: 
         #     print("cmd:", cmd.dir, cmd.dist)
@@ -264,8 +279,7 @@ class Walle:
                 if self.should_detect_bottles():
                     print("bottle detection")
                     self.distance_from_last_detection = 0
-                    self.motion_timeout = 0
-                    self.motion_buffer = []
+                    self._clear_motion_buffer()
                     # detect the bottles
                     """
                     ret = self.detector.get_nearest_bottle()
