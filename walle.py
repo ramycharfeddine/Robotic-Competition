@@ -37,12 +37,14 @@ class Walle:
         self.localizer.start()
         print("Localization test...")
         pose = self.localizer.get_pose()
-        if pose is None:
+        if not self._valid_pose(pose):
             print("Initialization Failed: Check the localization")
             pose = [[100, 100], np.pi/2]
-        #elif (pose[0][0] - 100) ** 2 + (pose[0][0] - 100) ** 2 > 20 ** 2 or abs(pose[1] - np.pi/2) > 0.2:
+        #elif (pose[0][0] - 100) ** 2 + (pose[0][0] - 100) ** 2 > 28.29 ** 2 or abs(pose[1] - np.pi/2) > 0.2:
         #    print("[Localization] Wrong initial pose")
         #    pose = [[100, 100], np.pi/2]
+
+   
         
         """
         print("Initializing the bottle detection camera...")
@@ -69,11 +71,20 @@ class Walle:
         self.pose = pose
         self.distance_from_last_detection = 0 # the counter for bottle detection
         self.state = 0 # Path follow, Bottle collection, Obstacle avoidance
-        self.check_bottle_waypoint_finished = False
-        self.collect_waypoint_finished = False
-        self.waypoint_going_back = False
+        self.wpthings = 0 # noting - 0; collect bottle - 1 ; 2 - check the bottle; 3 - going back
+        # self.check_bottle_waypoint_finished = False
+        # self.collect_waypoint_finished = False
+        # self.waypoint_going_back = False
         self.PAUSE = False
         print("-- Initialization Done!")
+
+    @staticmethod
+    def _valid_pose(pose):
+        if pose is None: return False
+        if  pose[0][0] > 0 and pose[0][0] < 800 and pose[0][1] > 0 and pose[0][1] < 800:
+            return True
+        return False
+    
 
     def __del__(self):
         self.end()
@@ -86,9 +97,7 @@ class Walle:
 
     def get_pose(self):
         pose = self.localizer.get_pose()
-        if pose is None:
-            pass
-        elif pose[0][0] > 0 and pose[0][0] < 800 and pose[0][1] > 0 and pose[0][1] < 800:
+        if self._valid_pose(pose):
             self.pose = pose
             self.ard.read()
             self.ard.get_displacements() # clear the displacements buffer
@@ -128,23 +137,24 @@ class Walle:
 
 
     def should_detect_bottles(self):
-        if self.waypoint_going_back:
+        if self.wpthings == 0:
+            return self.distance_from_last_detection > self.DETECTION_DISTANCE_INTERVAL
+        else:
             return False
-        elif self.collect_waypoint_finished:
-            return False
-        return self.distance_from_last_detection > self.DETECTION_DISTANCE_INTERVAL
     
     def special_waypoint(self):
-        if self.check_bottle_waypoint_finished:
+        if self.wpthings == 0:
+            return
+        elif self.wpthings == 1:
             self.distance_from_last_detection = self.DETECTION_DISTANCE_INTERVAL + 1
-            self.check_bottle_waypoint_finished = False
-        elif self.collect_waypoint_finished:
+            self.wpthings = 0
+        elif self.wpthings == 2:
             # collection
             self.ard.pick_up()
             self.state = 2 #
-            self.collect_waypoint_finished = False
+            self.wpthings = 0
             self.bottle_collected += 1
-        elif self.waypoint_going_back:
+        elif self.wpthings == 3:
             # empty the storage
             # turn to 45 deg
             angle_rotation = np.pi/4 - self.pose[1]
@@ -153,7 +163,7 @@ class Walle:
             self.ard.empty_storage() # TODO in Arduino: shake?
             self.state = 3 # empty
             self.bottle_collected = 0
-            self.waypoint_going_back = False
+            self.wpthings = 0
         # else: it's not special
 
     def follow_path(self):
@@ -237,16 +247,21 @@ class Walle:
                             x_bottle = self.pose[0][0] + dist_to_bottle*np.sin(ra)
                             y_bottle = self.pose[0][1] + dist_to_bottle*np.sin(ra)
                             self.mc.insert_waypoint([x_bottle,y_bottle])
-                            self.check_bottle_waypoint_finished = True
+                            
+                            self.wpthings = 2
+                            # self.check_bottle_waypoint_finished = True
                         elif rd > self.DIST_BOTTLE_COLLECT - self.EPS_BOTTLE_COLLECT:
                             dist_to_bottle = rd-self.DIST_BOTTLE_COLLECT
                             x_bottle = self.pose[0][0] + dist_to_bottle*np.sin(ra)
                             y_bottle = self.pose[0][1] + dist_to_bottle*np.sin(ra)
                             self.mc.insert_waypoint([x_bottle,y_bottle])
-                            self.collect_waypoint_finished = True
+                            
+                            self.wpthings = 1
+                            #self.collect_waypoint_finished = True
                         else: # too close
-                            self.ard.move(Protocol.BACKWARD, distance=rd - self.DIST_BOTTLE_COLLECT + 10)
-                            self.check_bottle_waypoint_finished = True                            
+                            self.ard.move(Protocol.BACKWARD, distance= self.DIST_BOTTLE_COLLECT - rd + 10)
+                            # self.check_bottle_waypoint_finished = True 
+                            self.wpthings = 2                           
                     """    
                 else:
                     # path following
@@ -258,13 +273,15 @@ class Walle:
             # TODO
             if self.bottle_collected >= self.STORAGE:
                 self.mc.insert_waypoint(self.RECYCLING_ZONE)
-                self.waypoint_going_back = True
+                self.wpthings = 3
+                #self.waypoint_going_back = True
             else:
                 # running out of time! let's go back
                 cur_time = time.time()
                 if cur_time - starter < 8 * 60:
                     self.mc.insert_waypoint(self.RECYCLING_ZONE)
-                    self.waypoint_going_back = True
+                    self.wpthings = 3
+                    #self.waypoint_going_back = True
                     self.check_bottle_waypoint_finished = False
                     self.collect_waypoint_finished = False
 
