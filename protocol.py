@@ -238,6 +238,13 @@ class Arduino:
     def start(self):
         return self.sercom.start()
 
+    @staticmethod
+    def byterang(a):
+        a = int(a)
+        if a < 0: a = 0
+        elif a > 255: a = 255
+        return a
+
     def end(self):
         self.sercom.end()
 
@@ -273,16 +280,17 @@ class Arduino:
                         index = addedinfo
                         distance = data[0]
                         # TODO
-                        print(f'[Obstacle] Front: the closest distance: {distance-1} from sensor {index}')
+                        #print(f'[Obstacle] Front: the closest distance: {distance-1} from sensor {index}')
                     elif msgtype == Protocol.RPT_OBSTACLES_BACK:
                         # not implemented yet
                         # TODO
-                        print(f'[Obstacle]  Back: {data[0]-1}')
+                        #print(f'[Obstacle]  Back: {data[0]-1}')
+                        pass
                     elif msgtype == Protocol.RPT_DISPLACEMENT:
                         dl = Protocol.signedbyte(data[0])
                         dr = Protocol.signedbyte(data[1])
                         self.displacements.append([dl, dr])
-                        print(f"Displacement:{dl, dr}")
+                        #print(f"Displacement:{dl, dr}")
                     elif msgtype == Protocol.RPT_DONE_TASK:
                         if addedinfo == Protocol.DONE_PICKUP:
                             # todo
@@ -293,7 +301,7 @@ class Arduino:
                         elif addedinfo == Protocol.DONE_AVOIDANCE:
                             # todo
                             self.OBS_WARN = False
-                            print("[Done] Obstacle free")
+                            #print("[Done] Obstacle free")
                         else: raise Exception("Unknown task type.")
                         self.TASK_UNDERGOING = False #TODO: a timeout may needed
 
@@ -311,18 +319,18 @@ class Arduino:
     def _move_at_speed(self, dir, speed, timeout = None):
         if timeout is None:
             self.sercom.send_message(Protocol.encode(
-                    Protocol.CMD_MOTION, Protocol.MOTION_MODE_SPEED, dir, [speed]))
+                    Protocol.CMD_MOTION, Protocol.MOTION_MODE_SPEED, dir, [self.byterang(speed)]))
         else:
             self.sercom.send_message(Protocol.encode(
-                Protocol.CMD_MOTION, Protocol.MOTION_MODE_SPEED, dir, [speed, timeout]))
+                Protocol.CMD_MOTION, Protocol.MOTION_MODE_SPEED, dir, [self.byterang(speed), self.byterang(timeout)]))
 
     def _move_to_distance(self, dir, distance, timeout = None):
         if timeout is None:
             self.sercom.send_message(Protocol.encode(
-                    Protocol.CMD_MOTION, Protocol.MOTION_MODE_DISTANCE, dir, [distance]))
+                    Protocol.CMD_MOTION, Protocol.MOTION_MODE_DISTANCE, dir, [self.byterang(distance)]))
         else:
             self.sercom.send_message(Protocol.encode(
-                Protocol.CMD_MOTION, Protocol.MOTION_MODE_DISTANCE, dir, [distance, timeout]))
+                Protocol.CMD_MOTION, Protocol.MOTION_MODE_DISTANCE, dir, [self.byterang(distance), self.byterang(timeout)]))
 
     def move(self, dir, speed = None, distance = None, timeout = None):
         """

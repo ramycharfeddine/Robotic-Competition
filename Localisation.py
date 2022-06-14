@@ -22,8 +22,8 @@ class Localization:
     LED_POS = np.array([[0, W, W, 0], [0, 0, H, H]])
 
     def __init__(self, camera_id = 1, 
-                    cam_error_center_x = 10, 
-                    cam_error_center_y = 5,
+                    cam_error_center_x = 20, 
+                    cam_error_center_y = 20,
                     camera_pos_bias = (0, -5) 
                     ):
         self.cam_id = camera_id
@@ -79,12 +79,15 @@ class Localization:
                 self.COLOR_HSV_THRESHOLD[i])
             img_led = cv2.bitwise_and(img, img, mask=led_mask)
             
-            moment_led = cv2.moments(img_led)
-            x = int(moment_led["m10"] / moment_led["m00"])
-            y = int(moment_led["m01"] / moment_led["m00"])
-            cv2.circle(img_led, (x,y), 10, (255,255,255), 2)
+            try:
+                moment_led = cv2.moments(img_led)
+                x = int(moment_led["m10"] / moment_led["m00"])
+                y = int(moment_led["m01"] / moment_led["m00"])
+                cv2.circle(img_led, (x,y), 10, (255,255,255), 2)
 
-            cv2.imshow('led'+str(i), img_led)
+                cv2.imshow('led'+str(i), img_led)
+            except:
+                pass
 
         # Visualize center for set up
         cv2.circle(img,(int(self.X_center_frame), int(self.Y_center_frame)), 10, (0,255,0))
@@ -116,7 +119,7 @@ class Localization:
                 led_positions[0, i] = int(moment_led["m10"] / moment_led["m00"])
                 led_positions[1, i] = int(moment_led["m01"] / moment_led["m00"])
             except:
-                print(f"[Localization] fail to detect color {i}")
+                #print(f"[Localization] fail to detect color {i}")
                 available[i] = 0
         return led_positions, available
     
@@ -227,19 +230,20 @@ if __name__ == "__main__":
     # img = cv2.imread("Localisation90.png")
     localizer.start()
     while True:
-        img = localizer._frame()
-        cv2.imshow("frame", img)
-        cv2.waitKey(0)
-        starter = time.time()
-        state = localizer._localize(img)
-        ender = time.time()
-        print(f'it takes {ender-starter}s.')
-        if state is None:
-            continue
-        print(f'pos ({state[0][0]:.1f},{state[0][1]:.1f}), ori: {state[1]/np.pi*180:.1f}')
         try:
-            localizer.calibrate(img_original=img)
+            img = localizer._frame()
+            cv2.imshow("frame", img)
             cv2.waitKey(0)
+            starter = time.time()
+            state = localizer._localize(img)
+            ender = time.time()
+            print(f'it takes {ender-starter}s.')
+            if state is None:
+                continue
+            print(f'pos ({state[0][0]:.1f},{state[0][1]:.1f}), ori: {state[1]/np.pi*180:.1f}')
+            localizer.calibrate(img_original=img)
         except:
             print("No result.")
             time.sleep(5)
+        finally:
+            cv2.waitKey(0)
