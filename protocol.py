@@ -139,7 +139,8 @@ class Protocol:
     SERVO_PICKUP = 0
     SERVO_EMPTY = 1
 
-    ADVFUN_LOCAL_AVOID = 0
+    ADVFUN_LOCAL_AVOID_LEFT = 0
+    ADVFUN_LOCAL_AVOID_RIGHT = 1
     # ADVFUN_DISABLE_OBS_DETECTION = 1
     # ADVFUN_ENABLE_OBS_DETECTION = 2
 
@@ -363,9 +364,12 @@ class Arduino:
         self.TASK_UNDERGOING = True
         self.sercom.send_message(Protocol.encode(Protocol.CMD_SERVO, Protocol.SERVO_EMPTY))
     
-    def do_local_avoidance(self):
+    def do_local_avoidance(self, left = True):
         self.TASK_UNDERGOING = True
-        self.sercom.send_message(Protocol.encode(Protocol.CMD_ADVFUN, Protocol.ADVFUN_LOCAL_AVOID))
+        if left:
+            self.sercom.send_message(Protocol.encode(Protocol.CMD_ADVFUN, Protocol.ADVFUN_LOCAL_AVOID_LEFT))
+        else:
+            self.sercom.send_message(Protocol.encode(Protocol.CMD_ADVFUN, Protocol.ADVFUN_LOCAL_AVOID_RIGHT))
 
     def set_obstacle_detection(self, enable:bool):
         """Not implemented yet"""
@@ -399,13 +403,15 @@ if __name__ == '__main__':
         # please add code inside 'read' function to deal with these info
         ard.read()
         
-        print('[whereami]',ard.whereami())
+        # print('[whereami]',ard.whereami())
         #ard.move(Protocol.BACKWARD,distance=10, timeout=10)
         #for i in range(3):
         #    time.sleep(1) # wait for response from arduino
         #    ard.read()
         #print('[whereami]',ard.whereami())
         
+        #print("empty storage...")
+        #ard.empty_storage()
         print("picking up...")
         ard.pick_up()
         for i in range(3):
