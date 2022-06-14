@@ -208,7 +208,11 @@ class Walle:
     def local_avoidance(self):
         # todo
         # simple strategy: let the arduino do everything!
-        self.ard.do_local_avoidance()
+        # decide the direction
+        wp = self.mc.waypoint_list[0]
+        dist_target, angle_target = self.mc._cart2polar(wp - self.pose[0])
+        angletoturn = self.mc._get_angle_to_turn(self.pose[1], angle_target)
+        self.ard.do_local_avoidance(angletoturn > 0)
 
     def pause(self):
         self.ard.stop()
@@ -231,14 +235,16 @@ class Walle:
             # TODO: check pause
 
             self.ard.read() # deal with the info from Arduino
-            if self.ard.OBS_WARN and not self.state == 1:
-                # local avoidance
-                print("stopped because of the obstacle")
-                self.local_avoidance()
-                # Motion stopped because of the obstacle in front
-                self.state = 1
-                self.motion_timeout = 0
-                self.motion_buffer = []
+            if self.ard.OBS_WARN:
+                if not self.state == 1:
+                    # local avoidance
+                    print("stopped because of the obstacle")
+                    self.local_avoidance()
+                    # Motion stopped because of the obstacle in front
+                    self.state = 1
+                    self.motion_timeout = 0
+                    self.motion_buffer = []
+                
             
             if self.ard.TASK_UNDERGOING:
                 continue
