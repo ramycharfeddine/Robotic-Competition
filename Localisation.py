@@ -24,12 +24,12 @@ class Localization:
     def __init__(self, camera_id = 1, 
                     cam_error_center_x = 20, 
                     cam_error_center_y = 20,
-                    camera_pos_bias = (0, -5) 
+                    camera_pos_bias_y = 8 
                     ):
         self.cam_id = camera_id
         self.X_center_frame = int(self.FRAME_WIDTH/2 + cam_error_center_x)
         self.Y_center_frame = int(self.FRAME_HEIGHT/2 + cam_error_center_y)
-        self.camera_pos_bias = camera_pos_bias
+        self.camera_pos_bias_y = camera_pos_bias_y
     
     def __del__(self):
         self.end()
@@ -213,7 +213,7 @@ class Localization:
         # print(oris)
 
         # camera position to center position
-        # TODO
+        position += np.array([self.camera_pos_bias_y*np.cos(ori), self.camera_pos_bias_y*np.sin(ori)])
 
         return [position, ori]
     
