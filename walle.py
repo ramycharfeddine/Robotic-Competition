@@ -130,6 +130,8 @@ class Walle:
             # accurate motion by distance
             timeout = cmd.timeout4distance()
             self.ard.move(cmd.dir, distance=int(cmd.dist), timeout=int(timeout/0.1))
+        
+        print(f"[Motion] dir:{cmd.dir}, dist:{cmd.dist}.")
 
         # remeber it
         self.cmd = cmd
@@ -137,6 +139,7 @@ class Walle:
         self.cmd_timeout = timeout
     
     def clear_cmd(self):
+        print(f"[Motion] cleared.")
         self.cmd = None
         self.cmd_timeout = 0
 
@@ -152,10 +155,14 @@ class Walle:
         # decide the direction
         cur_time = time.time()
         if cur_time > self.local_avoid_timer + self.LOCAL_AVOID_MEMORY:
-            wp = self.mc.waypoint_list[0]
+            wp = self.wps[0]
             dist_target, angle_target = self.mc._cart2polar(wp - self.pose[0])
             angletoturn = self.mc._get_angle_to_turn(self.pose[1], angle_target)
             self.avoid_direction = angletoturn < 0
+        if self.avoid_direction:
+            print("[Avoidance] LEFT")
+        else:
+            print("[Avoidance] RIGHT")
         self.local_avoid_timer = cur_time
         self.ard.do_local_avoidance(self.avoid_direction)
 
@@ -184,9 +191,11 @@ class Walle:
                     self.clear_cmd()
                 elif self.should_detect_bottle():
                     self.state = 1
+                    self.ard.stop()
                     self.clear_cmd()
                 else: # do path following
                     wp = self.wps[0]
+                    print("Going to wp", wp)
                     # if we have reached
                     self.get_pose()
                     dist_target, angle_target = self.mc._cart2polar(wp - self.state[0])
@@ -226,7 +235,7 @@ class Walle:
                         if rd < 200:
                             self.target_bottle = [rd, ra]
                             if rd > self.COLLECTION_APPROACH_DISTANCE + 10:
-                                self.state = 2 # bottle collection mode
+                                self.state = 2 # approach
                             elif rd < self.COLLECTION_DISTANCE:
                                 # go back 
                                 # the angle should be fine
@@ -282,6 +291,7 @@ class Walle:
                 # else wait for the cmd execution
             elif self.state == 4:
                 # local avoidance
+                print("Local Avoidance")
                 self.local_avoidance()
                 self.state = -1 # wait for the task
             elif self.state == 5:
@@ -329,6 +339,7 @@ class Walle:
 
             # check current cmd
             if self.cmd is not None and starter > self.cmd_timeout + self.cmd_timer_start:
+                print("[Motion] CMD timeout")
                 self.ard.stop()
                 self.clear_cmd()
 
@@ -346,6 +357,7 @@ class Walle:
                         self.state = 5
 
             ender = time.time()
+            print("current state", self.state)
             print(f"[Debug] One Loop takes {ender - starter:.2f}s")
 
 if __name__ == "__main__":
