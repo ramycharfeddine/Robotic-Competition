@@ -50,6 +50,7 @@ class SerialComm:
                     break
             except Exception as e:
                 print(e)
+                break
 
     def read_msg(self):
         """
@@ -402,26 +403,29 @@ if __name__ == '__main__':
     # normally it will be "/dev/ttyACM0"
 
     # create an instance of Arduino Controller specifying the port name.
-    ard = Arduino(portName = "COM6")
+    ard = Arduino(portName = "/dev/ttyACM1")
     ard.start()
 
     try:
-        time.sleep(1)
+        time.sleep(2)
         # read msg from arduino
         # please add code inside 'read' function to deal with these info
         ard.read()
         
         # print('[whereami]',ard.whereami())
-        #ard.move(Protocol.BACKWARD,distance=10, timeout=10)
-        #for i in range(3):
-        #    time.sleep(1) # wait for response from arduino
-        #    ard.read()
         #print('[whereami]',ard.whereami())
         
         #print("empty storage...")
+        #ard.do_local_avoidance()
         #ard.empty_storage()
         print("picking up...")
         ard.pick_up()
+        while ard.TASK_UNDERGOING:
+            time.sleep(2) # wait for response from arduino
+            ard.read()
+            
+            
+        ard.move(Protocol.FORWARD,distance=20)#, timeout=10)
         for i in range(3):
             time.sleep(2) # wait for response from arduino
             ard.read()

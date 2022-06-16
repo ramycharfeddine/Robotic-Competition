@@ -7,17 +7,21 @@ import numpy as np
 import time
 
 class Walle:
-    INITIAL_PATH = np.array([[200,200], [100,250], [200,350], [100,450], [75,700], [200,750], [150,600], [350,600],
-                             [350,700], [400,750], [450,700], [450,500], [300,450], [400,350], [550,500], [750,400],
-                             [750,350], [400,300], [350,250], [750,250], [700,50], [500,125], [500,50], [425,50], 
-                             [375,150], [300,50], [300,200], [200,200], [75,75]])
+    INITIAL_PATH = np.array([[75, 300], [75, 725], [400, 725], [400, 500], [700, 400], [700, 100],
+                             [300, 100], [400, 400], [500, 300]
+                             ])
+    #INITIAL_PATH = np.array([[200,200], [100,250], [200,350], [100,450], [75,700], [200,750], [150,600], [350,600],
+    #                         [350,700], [400,750], [450,700], [450,500], [300,450], [400,350], [550,500], [750,400],
+    #                         [750,350], [400,300], [350,250], [750,250], [700,50], [500,125], [500,50], [425,50], 
+    #                         [375,150], [300,50], [300,200], [200,200], [75,75]])
     WAYPOINT_TORLERANCE_DIST = 50 #cm 40width
     WAYPOINT_TORLERANCE_ANGLE = 0.2 # ~11.5 degree
+    WHEEL_DISTANCE = 28
 
     RECYCLING_TORLERANCE_DIST = 50 #cm 40width
     RECYCLING_ANGLE = np.pi/4
     RECYCLING_ZONE = np.array([75, 75])
-    STORAGE = 10
+    STORAGE = 7
 
     PRECISE_TORLERANCE_ANGLE = 0.035 # ~2 degree
     COLLECTION_DISTANCE = 15
@@ -58,18 +62,17 @@ class Walle:
             model_path = bottle_model,
             camera_id= bottle_cam
         )
+        #while True:
         ret = self.detector.get_nearest_bottle()
-        while True:
-            if ret is None:
-                print("No bottle detected, please place one in 2m to test!")
-                print("Another check will be executed in 5s")
-                time.sleep(5)
-            elif ret is False:
-                print("Error in bottle detection camera")
-                break
-            else:
-                print(f"the nearest bottle is in {ret[0]:.1f}cm away, {ret[1]/np.pi*180:.1f} degree.")
-                break
+        if ret is None:
+            print("No bottle detected, please place one in 2m to test!")
+            #print("Another check will be executed in 5s")
+            #time.sleep(5)
+        elif ret is False:
+            print("Error in bottle detection camera")
+        else:
+            print(f"the nearest bottle is in {ret[0]:.1f}cm away, {ret[1]/np.pi*180:.1f} degree.")
+            
             
         self.mc = MotionControl()
 
@@ -103,6 +106,7 @@ class Walle:
             self.ard.get_displacements() # clear the displacements buffer        
         # use the last pose and odometry
         self.odometry(self.ard.get_displacements())
+        self.__show_pose(self.pose)
 
     @staticmethod
     def __show_pose(pose):
@@ -143,8 +147,12 @@ class Walle:
         self.cmd = None
         self.cmd_timeout = 0
 
-    def should_detect_bottle(self) -> bool: 
-        return self.detection_timer + self.DETECTION_INTERVAL > time.time()
+    def should_detect_bottle(self) -> bool:
+        curtime = time.time()
+        ret = self.detection_timer + self.DETECTION_INTERVAL < curtime
+        print("curtime", curtime, "timer", self.detection_timer, "sum", self.detection_timer + self.DETECTION_INTERVAL)
+        # self.detection_timer = curtime
+        return ret
 
     def angle2turn(self, target):
         return ((target - self.pose[1]) + np.pi) %(2*np.pi) - np.pi
@@ -184,12 +192,15 @@ class Walle:
                 else:
                     # using this waiting time to do localization
                     self.get_pose()
+                    print("Waiting... ")
+                    self.__show_pose(self.pose)
             elif self.state == 0: # path following
                 # 
                 if self.ard.OBS_WARN: #obstacle too close
                     self.state = 4
                     self.clear_cmd()
                 elif self.should_detect_bottle():
+                    print("We should detect bottle")
                     self.state = 1
                     self.ard.stop()
                     self.clear_cmd()
@@ -198,7 +209,7 @@ class Walle:
                     print("Going to wp", wp)
                     # if we have reached
                     self.get_pose()
-                    dist_target, angle_target = self.mc._cart2polar(wp - self.state[0])
+                    dist_target, angle_target = self.mc._cart2polar(wp - self.pose[0])
                     if dist_target < self.WAYPOINT_TORLERANCE_DIST:
                         # ok, reached
                         self.ard.stop()
@@ -211,8 +222,8 @@ class Walle:
                             angle_to_turn = self.angle2turn(angle_target)
                             if abs(angle_to_turn) >  self.WAYPOINT_TORLERANCE_ANGLE:
                                 # turn towards it
-                                self.run_cmd(MotionCmd(1+1*(angle_to_turn<0)), \
-                                    self.mc._angle2dist(abs(angle_to_turn)))
+                                self.run_cmd(MotionCmd(1+1*(angle_to_turn<0), \
+                                    dist = self.mc._angle2dist(abs(angle_to_turn))))
                             # go to it
                             elif self.cmd is None: 
                                 self.run_cmd(MotionCmd(3, dist_target))
@@ -243,8 +254,8 @@ class Walle:
                                 self.state = 3 # pick it
                             else:
                                 if abs(ra) > self.PRECISE_TORLERANCE_ANGLE:
-                                    self.run_cmd(MotionCmd(1+1*(ra<0)), \
-                                        self.mc._angle2dist(abs(ra)))
+                                    self.run_cmd(MotionCmd(1+1*(ra<0), \
+                                        dist = self.mc._angle2dist(abs(ra))))
                                     self.target_bottle[1] = 0 # trust in arduino
                                 else:
                                     self.run_cmd(MotionCmd(3, rd - self.COLLECTION_DISTANCE))
@@ -266,8 +277,8 @@ class Walle:
                     # angle first              
                     angle_to_turn = self.target_bottle[1]
                     if abs(angle_to_turn) > self.PRECISE_TORLERANCE_ANGLE:
-                        self.run_cmd(MotionCmd(1+1*(angle_to_turn<0)), \
-                            self.mc._angle2dist(abs(angle_to_turn)))
+                        self.run_cmd(MotionCmd(1+1*(angle_to_turn<0), \
+                            dist = self.mc._angle2dist(abs(angle_to_turn))))
                         self.target_bottle[1] = 0 # trust in arduino  
                     else:
                         self.run_cmd(MotionCmd(3, self.target_bottle[0] - self.COLLECTION_APPROACH_DISTANCE))
@@ -295,6 +306,7 @@ class Walle:
                 self.local_avoidance()
                 self.state = -1 # wait for the task
             elif self.state == 5:
+                print("We are going back")
                 # going back
                 if self.ard.OBS_WARN: #obstacle too close
                     self.state = 4
@@ -303,16 +315,17 @@ class Walle:
                     wp = self.RECYCLING_ZONE
                     # path following                
                     self.get_pose()
-                    dist_target, angle_target = self.mc._cart2polar(wp - self.state[0])
+                    self.__show_pose(self.pose)
+                    dist_target, angle_target = self.mc._cart2polar(wp - self.pose[0])
                     if dist_target < self.WAYPOINT_TORLERANCE_DIST:
                         # ok, reached
                         print("Recycling Reached", wp)
                         # turn to first
                         if self.cmd is None:
                             angle_to_turn = self.angle2turn(self.RECYCLING_ANGLE)
-                            if abs(angle_to_turn) >  self.PRECISE_TORLERANCE_ANGLE:
-                                self.run_cmd(MotionCmd(1+1*(angle_to_turn<0)), \
-                                    self.mc._angle2dist(abs(angle_to_turn)))
+                            if abs(angle_to_turn) >  self.WAYPOINT_TORLERANCE_ANGLE:
+                                self.run_cmd(MotionCmd(1+1*(angle_to_turn<0), \
+                                    dist = self.mc._angle2dist(abs(angle_to_turn))))
                             else: # we can!
                                 print("Emptying the storage...", wp)
                                 self.ard.stop()
@@ -322,13 +335,14 @@ class Walle:
                                 self.state = -1
                         # else wait for execution
                     else:
+                        print("Go to the recycling zone")
                         # if not, we check the angle
                         if self.cmd is None or self.cmd.dir == 3:
                             angle_to_turn = self.angle2turn(angle_target)
                             if abs(angle_to_turn) >  self.WAYPOINT_TORLERANCE_ANGLE:
                                 # turn towards it
-                                self.run_cmd(MotionCmd(1+1*(angle_to_turn<0)), \
-                                    self.mc._angle2dist(abs(angle_to_turn)))
+                                self.run_cmd(MotionCmd(1+1*(angle_to_turn<0), \
+                                    self.mc._angle2dist(abs(angle_to_turn))))
                             # go to it
                             elif self.cmd is None: 
                                 self.run_cmd(MotionCmd(3, dist_target))
@@ -344,22 +358,24 @@ class Walle:
                 self.clear_cmd()
 
             # check if we should go back
-            if not self.state == 5:
+            if not self.state == 5 and not self.state == 4 and not self.state == -1:
                 if self.bottle_collected >= self.STORAGE:
                     print("so many bottles, let's go back")
                     self.state = 5
                 else:
                     # running out of time! let's go back
                     cur_time = time.time()
-                    if cur_time - self.starter > 8 * 60:
+                    if cur_time - self.starter > 9 * 60 and self.bottle_collected > 0:
                         print("curtime", cur_time)
                         print("running out of time! let's go back")
                         self.state = 5
 
             ender = time.time()
             print("current state", self.state)
-            print(f"[Debug] One Loop takes {ender - starter:.2f}s")
+            # print(f"[Debug] One Loop takes {ender - starter:.2f}s")
 
 if __name__ == "__main__":
-    walle = Walle(beacon_cam=1, bottle_cam=0, port_name="/dev/ttyACM0")
-    walle.start(debug=False)
+    while True:
+        walle = Walle(beacon_cam=1, bottle_cam=0, portName="/dev/ttyACM0")
+        walle.start(debug=False)
+        time.sleep(10)
