@@ -22,8 +22,8 @@ class Localization:
     LED_POS = np.array([[0, W, W, 0], [0, 0, H, H]])
 
     def __init__(self, camera_id = 1, 
-                    cam_error_center_x = 15, 
-                    cam_error_center_y = 30,
+                    cam_error_center_x = 0, 
+                    cam_error_center_y = 5,
                     camera_pos_bias_y = 8 
                     ):
         self.cam_id = camera_id
@@ -72,26 +72,27 @@ class Localization:
         img = img_original.copy()        
         img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         
+        COLORS = ((200, 0, 100), (255, 0, 0), (0, 255, 0), (0, 0, 255))
         for i in range(4):
             led_mask = self._color_filter(img_hsv, 
                 self.COLOR_HSV_RANGE[i][0], 
                 self.COLOR_HSV_RANGE[i][1],
                 self.COLOR_HSV_THRESHOLD[i])
-            img_led = cv2.bitwise_and(img, img, mask=led_mask)
+            #img_led = cv2.bitwise_and(img, img, mask=led_mask)
             
             try:
-                moment_led = cv2.moments(img_led)
+                moment_led = cv2.moments(led_mask)
                 x = int(moment_led["m10"] / moment_led["m00"])
                 y = int(moment_led["m01"] / moment_led["m00"])
-                cv2.circle(img_led, (x,y), 10, (255,255,255), 2)
+                cv2.circle(img, (x,y), 10, COLORS[i], 2)
 
-                cv2.imshow('led'+str(i), img_led)
+                #cv2.imshow('led'+str(i), img_led)
             except:
                 pass
 
         # Visualize center for set up
-        cv2.circle(img,(int(self.X_center_frame), int(self.Y_center_frame)), 10, (0,255,0))
-        cv2.line(img, (int(self.X_center_frame), int(self.Y_center_frame)), (img.shape[1], int(self.Y_center_frame)), (0, 255, 0), 3) 
+        cv2.circle(img,(int(self.X_center_frame), int(self.Y_center_frame)), 10, (100,100,100))
+        cv2.line(img, (int(self.X_center_frame), int(self.Y_center_frame)), (img.shape[1], int(self.Y_center_frame)), (100, 100, 100), 3) 
         cv2.imshow("calibration", img)
 
     @staticmethod
@@ -227,9 +228,13 @@ class Localization:
 
 if __name__ == "__main__":
     localizer = Localization(camera_id=1)
-    # img = cv2.imread("Localisation90.png")
-    localizer.start()
-    
+    img = cv2.imread("Localisation180.png")
+    state = localizer._localize(img)
+    print(f'pos ({state[0][0]:.1f},{state[0][1]:.1f}), ori: {state[1]/np.pi*180:.1f}')
+    localizer.calibrate(img_original=img)
+    cv2.waitKey(0)
+    #localizer.start()
+    """
     while True:
         #try:
         img = localizer._frame()
@@ -253,3 +258,4 @@ if __name__ == "__main__":
         #finally:
         #    pass
         cv2.waitKey(0)
+    """
